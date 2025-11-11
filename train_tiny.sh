@@ -56,7 +56,7 @@ case $CONFIG in
         ;;
     small)
         C=12
-        D=192
+        D=128
         NUM_Q=4
         CODEBOOK=1024
         SR=16000
@@ -66,7 +66,7 @@ case $CONFIG in
         ;;
     medium)
         C=16
-        D=256
+        D=128
         NUM_Q=5
         CODEBOOK=1024
         SR=16000
@@ -75,8 +75,8 @@ case $CONFIG in
         echo "Expected model size: ~0.3MB (encoder only)"
         ;;
     full)
-        C=32
-        D=256
+        C=16
+        D=128
         NUM_Q=6
         CODEBOOK=1024
         SR=16000
@@ -100,12 +100,13 @@ esac
 # Formula: bitrate (kbps) = num_quantizers * log2(codebook_size) * (sample_rate / downsampling_factor) / 1000
 # TinyStream uses strides [4,4,4,4] = 256x downsampling
 DOWNSAMPLING=256
-EMBEDDING_RATE=$(echo "$SR / $DOWNSAMPLING" | bc -l)
-LOG2_CODEBOOK=$(echo "l($CODEBOOK)/l(2)" | bc -l)
-BITRATE=$(echo "$NUM_Q * $LOG2_CODEBOOK * $EMBEDDING_RATE / 1000" | bc -l)
+
+# Use awk for reliable floating point calculation
+BITRATE=$(awk "BEGIN {printf \"%.2f\", $NUM_Q * log($CODEBOOK)/log(2) * $SR/$DOWNSAMPLING/1000}")
+BITS_PER_SAMPLE=$(awk "BEGIN {printf \"%.2f\", $BITRATE * 1000 / $SR}")
 
 echo "Parameters: C=$C, D=$D, num_quantizers=$NUM_Q, codebook=$CODEBOOK, sample_rate=$SR"
-printf "Bitrate: %.2f kbps (%.2f bits/sample)\n" "$BITRATE" "$(echo "$BITRATE * 1000 / $SR" | bc -l)"
+echo "Bitrate: $BITRATE kbps ($BITS_PER_SAMPLE bits/sample)"
 echo ""
 
 # Run training
