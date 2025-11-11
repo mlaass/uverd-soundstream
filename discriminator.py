@@ -115,9 +115,8 @@ class STFTDiscriminator(nn.Module):
             in_channels = out_channels
         
         # Final projection to aggregate across frequency
-        # After 6 blocks with stride (*, 2), freq is reduced by 2^6 = 64
-        final_freq = self.F // 64
-        self.final_conv = nn.Conv2d(channels[-1], 1, kernel_size=(1, final_freq))
+        # We'll use adaptive pooling in forward pass instead of fixed kernel
+        self.final_conv = nn.Conv2d(channels[-1], 1, kernel_size=(1, 1))
         
         self.activation = nn.LeakyReLU(0.2)
         
@@ -165,7 +164,11 @@ class STFTDiscriminator(nn.Module):
             x = self.activation(block(x))
             feature_maps.append(x)
         
-        # Final projection: aggregate across frequency dimension
+        # Aggregate across frequency dimension using adaptive pooling
+        # x shape: (batch, channels, time', freq')
+        x = torch.nn.functional.adaptive_avg_pool2d(x, (x.shape[2], 1))  # (batch, channels, time', 1)
+        
+        # Final projection
         logits = self.final_conv(x)  # (batch, 1, time', 1)
         logits = logits.squeeze(-1)  # (batch, 1, time')
         

@@ -345,6 +345,8 @@ class SoundStream(nn.Module):
             indices: (batch, num_quantizers, time//M) - codebook indices
             commitment_loss: scalar
         """
+        input_length = x.shape[-1]
+        
         # Encode
         z = self.encoder(x)
         
@@ -353,6 +355,13 @@ class SoundStream(nn.Module):
         
         # Decode
         recon = self.decoder(z_q)
+        
+        # Ensure output matches input length
+        if recon.shape[-1] != input_length:
+            if recon.shape[-1] > input_length:
+                recon = recon[..., :input_length]
+            else:
+                recon = F.pad(recon, (0, input_length - recon.shape[-1]))
         
         return recon, indices, commitment_loss
     
