@@ -12,7 +12,7 @@ datasets/*.zip
 datasets/ESC-50-master
 
 logs/events.*
-logs_tiny/events.*
+logs_tiny/**/events.*
 checkpoints/*.pt
 checkpoints_tiny/*.pt
 checkpoints_tiny/*.json

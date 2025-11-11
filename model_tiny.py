@@ -17,16 +17,16 @@ from typing import List
 
 class DepthwiseSeparableConv1d(nn.Module):
     """Depthwise separable convolution - much more efficient"""
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1):
         super().__init__()
         # Depthwise
         self.depthwise = nn.Conv1d(
             in_channels, in_channels, kernel_size,
-            stride=stride, padding=padding, groups=in_channels, bias=False
+            stride=stride, padding=padding, dilation=dilation, groups=in_channels, bias=False
         )
         # Pointwise
         self.pointwise = nn.Conv1d(in_channels, out_channels, 1, bias=False)
-        
+
     def forward(self, x):
         x = self.depthwise(x)
         x = self.pointwise(x)
@@ -34,13 +34,16 @@ class DepthwiseSeparableConv1d(nn.Module):
 
 
 class TinyResidualUnit(nn.Module):
-    """Lightweight residual unit"""
-    def __init__(self, channels):
+    """Lightweight residual unit with dilation support"""
+    def __init__(self, channels, dilation=1):
         super().__init__()
-        self.conv1 = DepthwiseSeparableConv1d(channels, channels, kernel_size=3, padding=1)
+        self.conv1 = DepthwiseSeparableConv1d(
+            channels, channels, kernel_size=3,
+            padding=dilation, dilation=dilation
+        )
         self.conv2 = nn.Conv1d(channels, channels, kernel_size=1, bias=False)
         self.activation = nn.ReLU(inplace=True)  # ReLU is faster than ELU on embedded
-        
+
     def forward(self, x):
         residual = x
         x = self.activation(self.conv1(x))
@@ -49,19 +52,25 @@ class TinyResidualUnit(nn.Module):
 
 
 class TinyEncoderBlock(nn.Module):
-    """Tiny encoder block - only 1 residual unit instead of 3"""
+    """Tiny encoder block with multiple residual units (like SoundStream)"""
     def __init__(self, in_channels, out_channels, stride):
         super().__init__()
-        self.res_unit = TinyResidualUnit(in_channels)
+        # Three residual units with different dilations (like SoundStream)
+        self.res_units = nn.ModuleList([
+            TinyResidualUnit(in_channels, dilation=1),
+            TinyResidualUnit(in_channels, dilation=3),
+            TinyResidualUnit(in_channels, dilation=9)
+        ])
         # Downsampling with depthwise separable
         self.downsample = DepthwiseSeparableConv1d(
-            in_channels, out_channels, 
+            in_channels, out_channels,
             kernel_size=2*stride, stride=stride, padding=stride//2
         )
         self.activation = nn.ReLU(inplace=True)
-        
+
     def forward(self, x):
-        x = self.res_unit(x)
+        for res_unit in self.res_units:
+            x = res_unit(x)
         x = self.activation(self.downsample(x))
         return x
 
@@ -110,7 +119,7 @@ class TinyEncoder(nn.Module):
 
 
 class TinyDecoderBlock(nn.Module):
-    """Tiny decoder block - upsampling + 1 residual unit"""
+    """Tiny decoder block with multiple residual units (like SoundStream)"""
     def __init__(self, in_channels, out_channels, stride):
         super().__init__()
         # Upsampling
@@ -119,12 +128,18 @@ class TinyDecoderBlock(nn.Module):
             kernel_size=2*stride, stride=stride, padding=stride//2,
             output_padding=stride-1, bias=False
         )
-        self.res_unit = TinyResidualUnit(out_channels)
+        # Three residual units with different dilations (like SoundStream)
+        self.res_units = nn.ModuleList([
+            TinyResidualUnit(out_channels, dilation=1),
+            TinyResidualUnit(out_channels, dilation=3),
+            TinyResidualUnit(out_channels, dilation=9)
+        ])
         self.activation = nn.ReLU(inplace=True)
 
     def forward(self, x):
         x = self.activation(self.upsample(x))
-        x = self.res_unit(x)
+        for res_unit in self.res_units:
+            x = res_unit(x)
         return x
 
 
@@ -289,7 +304,8 @@ class TinyStream(nn.Module):
         strides: List[int] = [4, 4, 4, 4],
         num_quantizers: int = 4,
         codebook_size: int = 512,
-        sample_rate: int = 16000
+        sample_rate: int = 16000,
+        commitment_weight: float = 0.25
     ):
         super().__init__()
         self.C = C
@@ -298,6 +314,7 @@ class TinyStream(nn.Module):
         self.num_quantizers = num_quantizers
         self.codebook_size = codebook_size
         self.sample_rate = sample_rate
+        self.commitment_weight = commitment_weight
 
         # Calculate downsampling factor
         self.downsample_factor = 1
@@ -306,7 +323,7 @@ class TinyStream(nn.Module):
 
         # Encoder + quantizer (for both training and ESP32 deployment)
         self.encoder = TinyEncoder(C, D, strides)
-        self.quantizer = TinyResidualVQ(num_quantizers, codebook_size, D)
+        self.quantizer = TinyResidualVQ(num_quantizers, codebook_size, D, commitment_weight)
 
         # Decoder (for training only, not deployed to ESP32)
         self.decoder = TinyDecoder(C, D, strides)
@@ -382,10 +399,18 @@ class TinyStream(nn.Module):
     def get_num_params(self):
         """Count parameters"""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
-    
+
+    def get_encoder_num_params(self):
+        """Count encoder-only parameters (for ESP32 deployment)"""
+        return sum(p.numel() for p in self.encoder.parameters() if p.requires_grad)
+
     def get_model_size_mb(self):
         """Get model size in MB (fp32)"""
         return self.get_num_params() * 4 / (1024 * 1024)
+
+    def get_encoder_size_mb(self):
+        """Get encoder-only size in MB (fp32) - for ESP32 deployment"""
+        return self.get_encoder_num_params() * 4 / (1024 * 1024)
 
 
 def create_esp32_configs():

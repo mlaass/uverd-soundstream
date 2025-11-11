@@ -175,11 +175,11 @@ class Decoder(nn.Module):
 
 class VectorQuantizer(nn.Module):
     """Single layer of Vector Quantization with EMA updates"""
-    def __init__(self, num_embeddings: int, embedding_dim: int, commitment_cost: float = 0.25):
+    def __init__(self, num_embeddings: int, embedding_dim: int, commitment_weight: float = 0.25):
         super().__init__()
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
-        self.commitment_cost = commitment_cost
+        self.commitment_weight = commitment_weight
         
         # Codebook
         self.embeddings = nn.Embedding(num_embeddings, embedding_dim)
@@ -218,7 +218,7 @@ class VectorQuantizer(nn.Module):
         quantized = quantized_flat.view(B, T, D).permute(0, 2, 1)
         
         # Commitment loss
-        commitment_loss = F.mse_loss(quantized.detach(), x) * self.commitment_cost
+        commitment_loss = F.mse_loss(quantized.detach(), x) * self.commitment_weight
         
         # Straight-through estimator
         quantized = x + (quantized - x).detach()
@@ -253,16 +253,16 @@ class ResidualVectorQuantizer(nn.Module):
         num_quantizers: int = 8,
         codebook_size: int = 1024,
         embedding_dim: int = 512,
-        commitment_cost: float = 0.25
+        commitment_weight: float = 0.25
     ):
         super().__init__()
         self.num_quantizers = num_quantizers
         self.codebook_size = codebook_size
         self.embedding_dim = embedding_dim
-        
+
         # Create quantizer layers
         self.quantizers = nn.ModuleList([
-            VectorQuantizer(codebook_size, embedding_dim, commitment_cost)
+            VectorQuantizer(codebook_size, embedding_dim, commitment_weight)
             for _ in range(num_quantizers)
         ])
         
@@ -315,7 +315,8 @@ class SoundStream(nn.Module):
         strides: List[int] = [2, 4, 5, 8],
         num_quantizers: int = 8,
         codebook_size: int = 1024,
-        sample_rate: int = 24000
+        sample_rate: int = 24000,
+        commitment_weight: float = 0.25
     ):
         super().__init__()
         self.C = C
@@ -324,15 +325,16 @@ class SoundStream(nn.Module):
         self.num_quantizers = num_quantizers
         self.codebook_size = codebook_size
         self.sample_rate = sample_rate
-        
+        self.commitment_weight = commitment_weight
+
         # Calculate downsampling factor
         self.downsample_factor = 1
         for s in strides:
             self.downsample_factor *= s
-        
+
         # Components
         self.encoder = Encoder(C, D, strides)
-        self.quantizer = ResidualVectorQuantizer(num_quantizers, codebook_size, D)
+        self.quantizer = ResidualVectorQuantizer(num_quantizers, codebook_size, D, commitment_weight)
         self.decoder = Decoder(C, D, strides)
         
     def forward(self, x, num_quantizers: Optional[int] = None):

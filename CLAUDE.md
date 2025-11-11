@@ -141,6 +141,7 @@ Expect ~3-5 days for 100k-150k steps on 12GB GPU with batch_size=8.
 
 ### Key Hyperparameters
 
+- **commitment_weight**: Vector quantization commitment loss weight (default: 0.25). Controls how strongly the encoder is encouraged to match the quantized codes. Higher values increase reconstruction quality but may slow convergence.
 - **disc_warmup_steps**: Start training discriminator after N steps (default: 5000) to stabilize early training
 - **lambda_adv**: Adversarial loss weight (default: 1.0)
 - **lambda_feat**: Feature matching loss weight (default: 100.0)
