@@ -11,11 +11,68 @@ import argparse
 from tqdm import tqdm
 import random
 import numpy as np
+from datetime import datetime
+import json
+import socket
+import subprocess
+import sys
 
 from model import SoundStream
 from discriminator import CombinedDiscriminator
 from losses import GeneratorLoss, DiscriminatorLoss
 from dataset import create_dataloader
+
+
+def get_git_commit_hash():
+    """Get current git commit hash, or None if not in a git repo"""
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
+
+
+def collect_metadata():
+    """Collect system and environment metadata"""
+    metadata = {
+        'timestamp': datetime.now().isoformat(),
+        'hostname': socket.gethostname(),
+        'python_version': sys.version,
+        'pytorch_version': torch.__version__,
+    }
+
+    # Add CUDA version if available
+    if torch.cuda.is_available():
+        metadata['cuda_version'] = torch.version.cuda
+        metadata['cudnn_version'] = torch.backends.cudnn.version()
+
+    # Add git commit hash if available
+    git_hash = get_git_commit_hash()
+    if git_hash:
+        metadata['git_commit'] = git_hash
+
+    return metadata
+
+
+def save_config_json(config_dict, run_name, checkpoint_dir):
+    """Save training configuration to JSON file"""
+    checkpoint_dir = Path(checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    config_path = checkpoint_dir / f'{run_name}_config.json'
+
+    with open(config_path, 'w') as f:
+        json.dump(config_dict, f, indent=2)
+
+    print(f"Saved config to: {config_path}")
 
 
 class SoundStreamTrainer:
@@ -26,12 +83,14 @@ class SoundStreamTrainer:
         discriminator: CombinedDiscriminator,
         train_loader,
         config: dict,
+        run_name: str,
         device: str = 'cuda'
     ):
         self.model = model.to(device)
         self.discriminator = discriminator.to(device)
         self.train_loader = train_loader
         self.config = config
+        self.run_name = run_name
         self.device = device
 
         # Optimizers
@@ -219,6 +278,7 @@ class SoundStreamTrainer:
         checkpoint = {
             'epoch': self.epoch,
             'global_step': self.global_step,
+            'run_name': self.run_name,
             'model_state_dict': self.model.state_dict(),
             'discriminator_state_dict': self.discriminator.state_dict(),
             'g_optimizer_state_dict': self.g_optimizer.state_dict(),
@@ -228,12 +288,12 @@ class SoundStreamTrainer:
             'config': self.config
         }
 
-        checkpoint_path = checkpoint_dir / f'soundstream_step_{self.global_step}.pt'
+        checkpoint_path = checkpoint_dir / f'soundstream_{self.run_name}_step_{self.global_step}.pt'
         torch.save(checkpoint, checkpoint_path)
         print(f"\nCheckpoint saved: {checkpoint_path}")
 
-        # Keep only last N checkpoints
-        checkpoints = sorted(checkpoint_dir.glob('soundstream_step_*.pt'))
+        # Keep only last N checkpoints for this run
+        checkpoints = sorted(checkpoint_dir.glob(f'soundstream_{self.run_name}_step_*.pt'))
         if len(checkpoints) > self.config.get('max_checkpoints', 5):
             for old_ckpt in checkpoints[:-self.config.get('max_checkpoints', 5)]:
                 old_ckpt.unlink()
@@ -252,7 +312,12 @@ class SoundStreamTrainer:
         self.epoch = checkpoint['epoch']
         self.global_step = checkpoint['global_step']
 
-        print(f"Loaded checkpoint from step {self.global_step}")
+        # Restore run_name if available (for backwards compatibility with old checkpoints)
+        if 'run_name' in checkpoint:
+            self.run_name = checkpoint['run_name']
+            print(f"Loaded checkpoint from run '{self.run_name}' at step {self.global_step}")
+        else:
+            print(f"Loaded checkpoint from step {self.global_step} (no run_name in checkpoint)")
 
     @torch.no_grad()
     def test_reconstruction(self, audio_path: str, output_path: str):
@@ -288,11 +353,15 @@ class SoundStreamTrainer:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train SoundStream')
+    parser = argparse.ArgumentParser(description='Train SoundStream or TinyStream')
     parser.add_argument('--audio_dir', type=str, required=True, help='Directory containing audio files')
     parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints', help='Checkpoint directory')
     parser.add_argument('--log_dir', type=str, default='./logs', help='Tensorboard log directory')
     parser.add_argument('--resume', type=str, default=None, help='Path to checkpoint to resume from')
+
+    # Model selection
+    parser.add_argument('--model', type=str, default='soundstream', choices=['soundstream', 'tinystream'],
+                       help='Model to train: soundstream (full) or tinystream (ESP32)')
 
     # Model config
     parser.add_argument('--C', type=int, default=32, help='Base number of channels')
@@ -322,7 +391,12 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
 
-    # Create config dict
+    # Generate run name (timestamp)
+    run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    print(f"Run name: {run_name}")
+
+    # Create config dict with run_name in log_dir
+    log_dir_with_run = str(Path(args.log_dir) / run_name)
     config = {
         'sample_rate': args.sample_rate,
         'g_lr': args.g_lr,
@@ -330,7 +404,7 @@ def main():
         'disc_warmup_steps': args.disc_warmup_steps,
         'save_interval': args.save_interval,
         'checkpoint_dir': args.checkpoint_dir,
-        'log_dir': args.log_dir,
+        'log_dir': log_dir_with_run,
         'lambda_adv': 1.0,
         'lambda_feat': 100.0,
         'lambda_rec': 1.0,
@@ -339,16 +413,29 @@ def main():
     }
 
     # Create model
-    print("Creating model...")
-    model = SoundStream(
-        C=args.C,
-        D=args.D,
-        strides=[2, 4, 5, 8],
-        num_quantizers=args.num_quantizers,
-        codebook_size=args.codebook_size,
-        sample_rate=args.sample_rate
-    )
-    print(f"Model parameters: {model.get_num_params():,}")
+    print(f"Creating model: {args.model.upper()}...")
+    if args.model == 'tinystream':
+        from model_tiny import TinyStream
+        model = TinyStream(
+            C=args.C,
+            D=args.D,
+            strides=[4, 4, 4, 4],  # 256x downsampling for ESP32
+            num_quantizers=args.num_quantizers,
+            codebook_size=args.codebook_size,
+            sample_rate=args.sample_rate
+        )
+        print("Note: TinyStream uses fixed number of quantizers (no dropout)")
+        print(f"Encoder+Quantizer for ESP32: {model.get_model_size_mb():.3f} MB")
+    else:
+        model = SoundStream(
+            C=args.C,
+            D=args.D,
+            strides=[2, 4, 5, 8],  # 320x downsampling
+            num_quantizers=args.num_quantizers,
+            codebook_size=args.codebook_size,
+            sample_rate=args.sample_rate
+        )
+    print(f"Total model parameters: {model.get_num_params():,}")
 
     # Create discriminator
     discriminator = CombinedDiscriminator()
@@ -364,12 +451,25 @@ def main():
     )
     print(f"Training batches per epoch: {len(train_loader)}")
 
+    # Collect metadata and save full config to JSON
+    metadata = collect_metadata()
+    full_config = {
+        'run_name': run_name,
+        'metadata': metadata,
+        'args': vars(args),
+        'config': config,
+        'model_params': model.get_num_params(),
+        'device': device
+    }
+    save_config_json(full_config, run_name, args.checkpoint_dir)
+
     # Create trainer
     trainer = SoundStreamTrainer(
         model=model,
         discriminator=discriminator,
         train_loader=train_loader,
         config=config,
+        run_name=run_name,
         device=device
     )
 

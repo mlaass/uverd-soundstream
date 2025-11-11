@@ -219,3 +219,4 @@ Checkpoints contain:
 - CUDA recommended (CPU training is extremely slow)
 - Gradient clipping at max_norm=1.0 for both generator and discriminator
 - Exponential learning rate decay throughout training
+- dont modify pyproject toml directly, just use uv add so we get the latest releases

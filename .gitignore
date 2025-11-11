@@ -12,4 +12,11 @@ datasets/*.zip
 datasets/ESC-50-master
 
 logs/events.*
-# checkpoints/
+logs_tiny/events.*
+checkpoints/*.pt
+checkpoints_tiny/*.pt
+checkpoints_tiny/*.json
+
+# Evaluation outputs
+evaluation/outputs/*
+!evaluation/outputs/.gitkeep
