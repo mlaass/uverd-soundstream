@@ -1,0 +1,13 @@
+[project]
+name = "uverd-soundstream"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.24.0",
+    "tensorboard>=2.14.0",
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+    "tqdm>=4.65.0",
+]
