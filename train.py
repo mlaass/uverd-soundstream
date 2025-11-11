@@ -84,7 +84,7 @@ class SoundStreamTrainer:
         batch_size = real_audio.shape[0]
 
         # Sample number of quantizers for quantizer dropout
-        if self.training and random.random() < 0.5:  # 50% chance to use dropout
+        if self.model.training and random.random() < 0.5:  # 50% chance to use dropout
             num_quantizers = random.randint(1, self.model.num_quantizers)
         else:
             num_quantizers = self.model.num_quantizers

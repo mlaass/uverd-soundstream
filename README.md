@@ -54,23 +54,38 @@ pip install -r requirements.txt
 
 ## Dataset Preparation
 
-### Option 1: Xeno-canto Bird Sounds
-Download bird sounds from [Xeno-canto](https://xeno-canto.org/):
-```bash
-# Install xeno-canto downloader
-pip install xenocanto
+### Quick Start: Automated Download
 
-# Download bird sounds (example: forest birds)
-# You'll need to use their API or download manually
+Use the provided script to download datasets automatically:
+
+```bash
+# Download all free datasets (ESC-50, LibriSpeech)
+./download_datasets.sh --all
+
+# Download specific datasets
+./download_datasets.sh --esc50
+./download_datasets.sh --librispeech
+
+# List available datasets
+./download_datasets.sh --list
 ```
 
-### Option 2: ESC-50 Environmental Sounds
-```bash
-wget https://github.com/karolpiczak/ESC-50/archive/master.zip
-unzip master.zip
-```
+See [datasets/README.md](datasets/README.md) for detailed information about each dataset.
 
-### Option 3: Your Own Audio
+### Available Datasets
+
+**General Audio:**
+- **ESC-50**: Environmental sounds (600MB, 2000 files) - Auto download
+- **FSD50K**: Freesound dataset (80GB, 51K files) - Manual download
+- **UrbanSound8K**: Urban sounds (6GB, 8732 files) - Manual download  
+- **LibriSpeech**: Speech corpus (350MB, 2600 files) - Auto download
+
+**Birds & Forest (Natural Sounds):**
+- **Xeno-canto**: 500k+ bird recordings (customizable) - Python API script
+- **FSC22**: Forest sounds (5GB, 7K files) - Manual download
+- **Bird Audio Detection**: Forest monitoring (20GB, 15K files) - Manual download
+
+### Option: Your Own Audio
 Place any `.wav`, `.mp3`, `.flac`, or `.ogg` files in a directory:
 ```
 /path/to/audio/
@@ -84,8 +99,12 @@ Place any `.wav`, `.mp3`, `.flac`, or `.ogg` files in a directory:
 
 ### Quick Start (12GB VRAM)
 ```bash
+# First, download a dataset
+./download_datasets.sh --esc50
+
+# Then train
 python train.py \
-    --audio_dir /path/to/audio \
+    --audio_dir datasets/ESC-50-master/audio \
     --batch_size 8 \
     --audio_length 2.0 \
     --num_epochs 1000 \
@@ -97,7 +116,7 @@ python train.py \
 
 ```bash
 python train.py \
-    --audio_dir /path/to/audio \
+    --audio_dir datasets/ESC-50-master/audio \
     --batch_size 6 \          # Adjust based on VRAM
     --audio_length 2.0 \      # 2-second chunks
     --C 32 \                  # Base channels
@@ -114,7 +133,7 @@ python train.py \
 ### Training from Checkpoint
 ```bash
 python train.py \
-    --audio_dir /path/to/audio \
+    --audio_dir datasets/ESC-50-master/audio \
     --resume ./checkpoints/soundstream_step_50000.pt \
     --batch_size 8
 ```
