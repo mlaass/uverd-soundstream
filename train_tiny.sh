@@ -3,17 +3,19 @@
 # Training script for TinyStream model (ESP32-S3 deployment)
 #
 # Usage:
-#   ./train_tiny.sh                      # Train with 'tiny' config
-#   ./train_tiny.sh --config ultra_tiny  # Train with 'ultra_tiny' config
-#   ./train_tiny.sh --config small       # Train with 'small' config
-#   ./train_tiny.sh --config medium      # Train with 'medium' config
-#   ./train_tiny.sh --config full        # Train with 'full' config (1MB encoder)
+#   ./train_tiny.sh                                    # Train with 'tiny' config
+#   ./train_tiny.sh --config ultra_tiny                # Train with 'ultra_tiny' config
+#   ./train_tiny.sh --config small                     # Train with 'small' config
+#   ./train_tiny.sh --config medium                    # Train with 'medium' config
+#   ./train_tiny.sh --config full                      # Train with 'full' config (1MB encoder)
+#   ./train_tiny.sh --config medium --resume path.pt   # Resume training from checkpoint
 #
 # Note: Uses 2.0 second audio chunks for discriminator compatibility
 
 # Parse config argument (default: tiny)
 CONFIG="tiny"
 AUDIO_DIR="datasets/ESC-50-master/audio"
+RESUME=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -23,6 +25,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --audio_dir)
             AUDIO_DIR="$2"
+            shift 2
+            ;;
+        --resume)
+            RESUME="$2"
             shift 2
             ;;
         *)
@@ -110,20 +116,30 @@ echo "Bitrate: $BITRATE kbps ($BITS_PER_SAMPLE bits/sample)"
 echo ""
 
 # Run training
-uv run python train.py \
-    --model tinystream \
-    --audio_dir "$AUDIO_DIR" \
-    --batch_size $BATCH_SIZE \
-    --audio_length 2.0 \
-    --C $C \
-    --D $D \
-    --num_quantizers $NUM_Q \
-    --codebook_size $CODEBOOK \
-    --sample_rate $SR \
-    --checkpoint_dir "./checkpoints_tiny" \
-    --log_dir "./logs_tiny" \
-    --g_lr 1e-4 \
-    --d_lr 1e-4 \
-    --disc_warmup_steps 5000 \
-    --save_interval 5000 \
+TRAIN_ARGS=(
+    --model tinystream
+    --audio_dir "$AUDIO_DIR"
+    --batch_size $BATCH_SIZE
+    --audio_length 2.0
+    --C $C
+    --D $D
+    --num_quantizers $NUM_Q
+    --codebook_size $CODEBOOK
+    --sample_rate $SR
+    --checkpoint_dir "./checkpoints_tiny"
+    --log_dir "./logs_tiny"
+    --g_lr 1e-4
+    --d_lr 1e-4
+    --disc_warmup_steps 5000
+    --save_interval 5000
     --num_epochs 1000
+)
+
+# Add --resume if specified
+if [ -n "$RESUME" ]; then
+    TRAIN_ARGS+=(--resume "$RESUME")
+    echo "Resuming from checkpoint: $RESUME"
+    echo ""
+fi
+
+uv run python train.py "${TRAIN_ARGS[@]}"

@@ -9,11 +9,15 @@ wheels/
 # Virtual environments
 .venv
 datasets/*.zip
+datasets/*.tar.gz
 datasets/ESC-50-master
+datasets/LibriSpeech
 
-logs/events.*
+logs/**/events.*
 logs_tiny/**/events.*
+
 checkpoints/*.pt
+checkpoints/*.json
 checkpoints_tiny/*.pt
 checkpoints_tiny/*.json
 

@@ -18,7 +18,7 @@ DATASETS_DIR="./datasets"
 dataset_exists() {
     local dataset_name=$1
     local check_path=$2
-    
+
     if [ -d "$check_path" ] && [ "$(ls -A $check_path 2>/dev/null)" ]; then
         echo -e "${GREEN}✓ $dataset_name already downloaded${NC}"
         return 0
@@ -32,7 +32,7 @@ download_and_extract() {
     local url=$1
     local filename=$2
     local extract_dir=$3
-    
+
     # Download if not exists
     if [ ! -f "$filename" ]; then
         echo "Downloading $filename..."
@@ -40,7 +40,7 @@ download_and_extract() {
     else
         echo "Archive $filename already exists, skipping download"
     fi
-    
+
     # Extract if not already extracted
     if [ ! -d "$extract_dir" ] || [ ! "$(ls -A $extract_dir 2>/dev/null)" ]; then
         echo "Extracting $filename..."
@@ -70,16 +70,16 @@ download_esc50() {
     echo -e "\n${BLUE}=== ESC-50 Dataset ===${NC}"
     echo "Environmental Sound Classification"
     echo "Size: ~600MB | Samples: 2000 files (5s each) | Classes: 50"
-    
+
     if dataset_exists "ESC-50" "ESC-50-master/audio"; then
         return 0
     fi
-    
+
     download_and_extract \
         "https://github.com/karoldvl/ESC-50/archive/master.zip" \
         "ESC-50-master.zip" \
         "ESC-50-master"
-    
+
     echo -e "${GREEN}✓ ESC-50 ready!${NC}"
     echo "Audio files: ESC-50-master/audio/"
 }
@@ -99,23 +99,23 @@ download_fsd50k() {
     echo "3. Place them in $(pwd)"
     echo "4. Run this script again"
     echo ""
-    
+
     # Check if archives exist and extract
     if [ -f "FSD50K.dev_audio.zip" ] || [ -f "FSD50K.eval_audio.zip" ]; then
         echo "Found FSD50K archives, extracting..."
-        
+
         if [ -f "FSD50K.dev_audio.zip" ] && [ ! -d "FSD50K/dev_audio" ]; then
             echo "Extracting dev_audio..."
             mkdir -p FSD50K
             unzip -q "FSD50K.dev_audio.zip" -d FSD50K/
         fi
-        
+
         if [ -f "FSD50K.eval_audio.zip" ] && [ ! -d "FSD50K/eval_audio" ]; then
             echo "Extracting eval_audio..."
             mkdir -p FSD50K
             unzip -q "FSD50K.eval_audio.zip" -d FSD50K/
         fi
-        
+
         echo -e "${GREEN}✓ FSD50K extracted!${NC}"
     else
         echo -e "${YELLOW}FSD50K archives not found. Please download manually.${NC}"
@@ -137,7 +137,7 @@ download_urbansound8k() {
     echo "3. Place it in $(pwd)"
     echo "4. Run this script again"
     echo ""
-    
+
     # Check if archive exists and extract
     if [ -f "UrbanSound8K.tar.gz" ]; then
         if [ ! -d "UrbanSound8K" ]; then
@@ -158,16 +158,16 @@ download_librispeech() {
     echo "Speech corpus (test set only)"
     echo "Size: ~350MB | Samples: ~2600 files"
     echo "Use case: Testing speech reconstruction"
-    
+
     if dataset_exists "LibriSpeech" "LibriSpeech/test-clean"; then
         return 0
     fi
-    
+
     download_and_extract \
         "https://www.openslr.org/resources/12/test-clean.tar.gz" \
         "test-clean.tar.gz" \
         "LibriSpeech/test-clean"
-    
+
     echo -e "${GREEN}✓ LibriSpeech test-clean ready!${NC}"
     echo "Audio files: LibriSpeech/test-clean/"
 }
@@ -188,7 +188,7 @@ download_birdaudio() {
     echo "3. Place archives in $(pwd)"
     echo "4. Run this script again to extract"
     echo ""
-    
+
     # Check if archives exist and extract
     if [ -f "BirdVox-DCASE-20k.zip" ] || [ -d "BirdVox-DCASE-20k" ]; then
         if [ -f "BirdVox-DCASE-20k.zip" ] && [ ! -d "BirdVox-DCASE-20k" ]; then
@@ -210,11 +210,11 @@ download_fsc22() {
     echo "Size: ~5GB | Samples: ~7,000 audio clips"
     echo "Classes: Forest-specific sounds (birds, insects, wind, etc.)"
     echo "Use case: Purpose-built for forest environment classification"
-    
+
     if dataset_exists "FSC22" "FSC22"; then
         return 0
     fi
-    
+
     echo ""
     echo -e "${YELLOW}⚠ FSC22 requires manual download from Zenodo${NC}"
     echo "Visit: https://zenodo.org/record/6467836"
@@ -225,7 +225,7 @@ download_fsc22() {
     echo "3. Place it in $(pwd)"
     echo "4. Run this script again to extract"
     echo ""
-    
+
     # Check if archive exists and extract
     if [ -f "FSC22.zip" ]; then
         if [ ! -d "FSC22" ]; then
@@ -279,16 +279,16 @@ show_audioset_info() {
 # List available datasets
 list_datasets() {
     echo -e "\n${BLUE}=== Available Datasets ===${NC}\n"
-    
+
     local found=0
-    
+
     # ESC-50
     if [ -d "ESC-50-master/audio" ]; then
         local count=$(find ESC-50-master/audio -name "*.wav" 2>/dev/null | wc -l)
         echo -e "${GREEN}✓ ESC-50${NC}           $count files    ESC-50-master/audio/"
         found=1
     fi
-    
+
     # FSD50K
     if [ -d "FSD50K" ]; then
         local dev_count=$(find FSD50K/dev_audio -name "*.wav" 2>/dev/null | wc -l)
@@ -297,47 +297,47 @@ list_datasets() {
         echo -e "${GREEN}✓ FSD50K${NC}           $total files    FSD50K/"
         found=1
     fi
-    
+
     # UrbanSound8K
     if [ -d "UrbanSound8K/audio" ]; then
         local count=$(find UrbanSound8K/audio -name "*.wav" 2>/dev/null | wc -l)
         echo -e "${GREEN}✓ UrbanSound8K${NC}     $count files    UrbanSound8K/audio/"
         found=1
     fi
-    
+
     # LibriSpeech
     if [ -d "LibriSpeech" ]; then
         local count=$(find LibriSpeech -name "*.flac" 2>/dev/null | wc -l)
         echo -e "${GREEN}✓ LibriSpeech${NC}      $count files    LibriSpeech/"
         found=1
     fi
-    
+
     # Bird Audio Detection
     if [ -d "BirdVox-DCASE-20k" ]; then
         local count=$(find BirdVox-DCASE-20k -name "*.wav" 2>/dev/null | wc -l)
         echo -e "${GREEN}✓ BirdAudio${NC}        $count files    BirdVox-DCASE-20k/"
         found=1
     fi
-    
+
     # FSC22
     if [ -d "FSC22" ]; then
         local count=$(find FSC22 -name "*.wav" -o -name "*.flac" 2>/dev/null | wc -l)
         echo -e "${GREEN}✓ FSC22${NC}            $count files    FSC22/"
         found=1
     fi
-    
+
     # Xeno-canto
     if [ -d "xeno-canto" ]; then
         local count=$(find xeno-canto -name "*.mp3" -o -name "*.wav" 2>/dev/null | wc -l)
         echo -e "${GREEN}✓ Xeno-canto${NC}       $count files    xeno-canto/"
         found=1
     fi
-    
+
     if [ $found -eq 0 ]; then
         echo "No datasets found."
         echo "Run: ./download_datasets.sh --all"
     fi
-    
+
     echo ""
 }
 

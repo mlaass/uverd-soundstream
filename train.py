@@ -412,6 +412,10 @@ def main():
             sample_rate=args.sample_rate,
             commitment_weight=args.commitment_weight,
         )
+        print("Note: SoundStream supports quantizer dropout during training")
+        print(f"Encoder parameters: {model.get_encoder_num_params():,}")
+        print(f"Encoder only: {model.get_encoder_size_mb():.3f} MB")
+        print(f"Full model: {model.get_model_size_mb():.3f} MB")
         print(f"Total model parameters: {model.get_num_params():,}")
 
     # Create discriminator

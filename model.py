@@ -384,6 +384,18 @@ class SoundStream(nn.Module):
         """Count parameters"""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
+    def get_encoder_num_params(self):
+        """Count encoder-only parameters"""
+        return sum(p.numel() for p in self.encoder.parameters() if p.requires_grad)
+
+    def get_model_size_mb(self):
+        """Get model size in MB (fp32)"""
+        return self.get_num_params() * 4 / (1024 * 1024)
+
+    def get_encoder_size_mb(self):
+        """Get encoder-only size in MB (fp32)"""
+        return self.get_encoder_num_params() * 4 / (1024 * 1024)
+
 
 if __name__ == "__main__":
     # Test the model
