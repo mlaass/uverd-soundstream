@@ -112,36 +112,37 @@ class TemporalFeatureExtractionBlock(nn.Module):
         super().__init__()
         
         self.num_classes = num_classes
-        
+
         # First conv block
-        filters_3 = int(base_filters * (2**2))  # x * 2^2
+        # TFEB starts at base_filters (32), not base_filters * 4!
+        filters_3 = base_filters  # 32
         self.conv3 = nn.Conv2d(in_channels, filters_3, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(filters_3)
-        
+
         # VGG-style blocks: 2 convs + pool
         # Block 1
-        filters_4 = int(base_filters * (2**3))  # x * 2^3
+        filters_4 = int(base_filters * 2)  # 64
         self.conv4 = nn.Conv2d(filters_3, filters_4, kernel_size=3, padding=1)
         self.bn4 = nn.BatchNorm2d(filters_4)
         self.conv5 = nn.Conv2d(filters_4, filters_4, kernel_size=3, padding=1)
         self.bn5 = nn.BatchNorm2d(filters_4)
-        
+
         # Block 2
-        filters_6 = int(base_filters * (2**4))  # x * 2^4
+        filters_6 = int(base_filters * 4)  # 128
         self.conv6 = nn.Conv2d(filters_4, filters_6, kernel_size=3, padding=1)
         self.bn6 = nn.BatchNorm2d(filters_6)
         self.conv7 = nn.Conv2d(filters_6, filters_6, kernel_size=3, padding=1)
         self.bn7 = nn.BatchNorm2d(filters_6)
-        
+
         # Block 3
-        filters_8 = int(base_filters * (2**5))  # x * 2^5
+        filters_8 = int(base_filters * 8)  # 256
         self.conv8 = nn.Conv2d(filters_6, filters_8, kernel_size=3, padding=1)
         self.bn8 = nn.BatchNorm2d(filters_8)
         self.conv9 = nn.Conv2d(filters_8, filters_8, kernel_size=3, padding=1)
         self.bn9 = nn.BatchNorm2d(filters_8)
-        
+
         # Block 4
-        filters_10 = int(base_filters * (2**6))  # x * 2^6
+        filters_10 = int(base_filters * 16)  # 512
         self.conv10 = nn.Conv2d(filters_8, filters_10, kernel_size=3, padding=1)
         self.bn10 = nn.BatchNorm2d(filters_10)
         self.conv11 = nn.Conv2d(filters_10, filters_10, kernel_size=3, padding=1)
@@ -149,12 +150,18 @@ class TemporalFeatureExtractionBlock(nn.Module):
         
         # Dropout
         self.dropout = nn.Dropout(dropout_rate)
-        
-        # Final 1x1 conv to num_classes
+
+        # Conv12: 1x1 convolution to reduce channels (512 → num_classes)
+        # This is specified in Table 2 of the ACDNet paper
         self.conv12 = nn.Conv2d(filters_10, num_classes, kernel_size=1)
-        
-        # Dense layer for final classification
-        self.dense = None  # Will be created dynamically
+
+        # Dense layer: num_classes → num_classes (after global pooling)
+        # This is the final classification layer from the paper
+        self.dense = nn.Linear(num_classes, num_classes)
+
+        # Initialize dense layer with proper initialization
+        nn.init.xavier_uniform_(self.dense.weight)
+        nn.init.constant_(self.dense.bias, 0)
         
     def _calculate_pool_size(self, h: int, w: int, pool_idx: int, num_pools: int) -> Tuple[int, int]:
         """
@@ -256,25 +263,21 @@ class TemporalFeatureExtractionBlock(nn.Module):
         
         # Dropout
         x = self.dropout(x)
-        
-        # 1x1 conv to num_classes
+
+        # Conv12: 1x1 convolution to reduce channels
+        # (B, 512, h, w) -> (B, num_classes, h, w)
         x = self.conv12(x)
-        
-        # Final average pool
-        h, w = x.size(2), x.size(3)
-        kh, kw = self._calculate_pool_size(h, w, pool_idx, num_pools)
-        x = F.avg_pool2d(x, kernel_size=(kh, kw), stride=(kh, kw))
-        
-        # Flatten: (B, num_classes, h', w') -> (B, num_classes * h' * w')
+        x = F.relu(x)
+
+        # Global average pooling: (B, num_classes, h, w) -> (B, num_classes, 1, 1)
+        x = F.adaptive_avg_pool2d(x, (1, 1))
+
+        # Flatten: (B, num_classes, 1, 1) -> (B, num_classes)
         x = x.view(batch_size, -1)
-        
-        # Dense layer to ensure output is num_classes
-        if self.dense is None:
-            in_features = x.size(1)
-            self.dense = nn.Linear(in_features, self.num_classes).to(x.device)
-        
+
+        # Dense layer: (B, num_classes) -> (B, num_classes)
         x = self.dense(x)
-        
+
         return x
 
 
@@ -315,13 +318,15 @@ class ACDNet(nn.Module):
             sample_rate=sample_rate
         )
         
-        # Calculate SFEB output channels
+        # Calculate SFEB output channels (not used by TFEB)
         sfeb_out_channels = int(base_filters * (2**3))
-        
+
         # Temporal Feature Extraction Block
+        # TFEB has its own independent base_filters=32 (matches reference implementation)
+        # This is NOT derived from SFEB - it's a fixed constant per the paper
         self.tfeb = TemporalFeatureExtractionBlock(
             in_channels=1,  # After axis swap
-            base_filters=sfeb_out_channels,
+            base_filters=32,  # Fixed at 32 per ACDNet paper/reference implementation
             num_classes=num_classes,
             dropout_rate=dropout_rate
         )
