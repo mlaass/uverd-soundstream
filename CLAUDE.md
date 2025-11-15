@@ -323,12 +323,19 @@ python test_acdnet.py \
 
 ## Code Organization
 
+### Common/Shared
+- **dataset.py**: Unified audio dataset for both codec training and classification
+  - AudioDataset: Base class supporting labeled/unlabeled data
+  - ESC50Dataset, UrbanSound8KDataset: Classification datasets
+  - create_dataloader(): For codec training (SoundStream/TinyStream)
+  - create_dataloaders(): For classification training (ACDNet)
+  - AudioNormalizer, AudioAugmentation: Utility classes
+
 ### SoundStream/TinyStream
 - **model.py**: SoundStream encoder/decoder/RVQ
 - **model_tiny.py**: TinyStream with depthwise separable convs
 - **discriminator.py**: Multi-scale wave + STFT discriminators
 - **losses.py**: All loss functions
-- **dataset.py**: Audio loading, preprocessing
 - **train.py**: Main training loop
 - **train.sh / train_tiny.sh**: Training scripts with presets
 - **infer.py**: Inference script
@@ -336,7 +343,6 @@ python test_acdnet.py \
 ### ACDNet
 - **acdnet_model.py**: Full ACDNet implementation
 - **acdnet_micro.py**: Compressed Micro-ACDNet
-- **acdnet_dataset.py**: Dataset loading for classification
 - **train_acdnet.py**: Training loop for classification
 - **test_acdnet.py**: Testing/evaluation
 - **run_acdnet.sh**: Training script with defaults

@@ -15,9 +15,14 @@ datasets/LibriSpeech
 
 logs/**/events.*
 logs_tiny/**/events.*
+logs*/**/events.*
 
-checkpoints/*.pt
-checkpoints/*.json
+**.pt
+**.json
+checkpoints*/*.pt
+checkpoints_micro_acdnet/*.pt
+checkpoints*/*.json
+checkpoints_micro_acdnet/*.json
 checkpoints_tiny/*.pt
 checkpoints_tiny/*.json
 
