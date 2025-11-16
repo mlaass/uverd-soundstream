@@ -5,7 +5,7 @@ Supports both unlabeled audio (codec training) and labeled audio (classification
 
 import torch
 import torchaudio
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from pathlib import Path
 import random
 from typing import Optional, List, Tuple, Union
@@ -111,6 +111,73 @@ class AudioAugmentation:
         audio = torchaudio.functional.resample(audio, sample_rate, shifted_sr)
         audio = torchaudio.functional.resample(audio, shifted_sr, sample_rate)
         return audio
+
+    @staticmethod
+    def gain_variation(audio: torch.Tensor, db_range: Tuple[float, float] = (-15, 15)) -> torch.Tensor:
+        """
+        Apply random gain (volume) variation.
+
+        Args:
+            audio: Input audio tensor
+            db_range: Range of gain in dB (e.g., (-15, 15) means ±15 dB)
+        """
+        gain_db = random.uniform(*db_range)
+        # Convert dB to linear amplitude
+        gain_linear = 10 ** (gain_db / 20)
+        return audio * gain_linear
+
+    @staticmethod
+    def time_mask(audio: torch.Tensor, max_mask_pct: float = 0.2) -> torch.Tensor:
+        """
+        Mask a random portion of the audio (set to zeros) - optimized in-place.
+
+        Args:
+            audio: Input audio tensor (channels, samples)
+            max_mask_pct: Maximum percentage of audio to mask (0.2 = 20%)
+        """
+        audio_length = audio.shape[-1]
+        mask_length = int(audio_length * random.uniform(0.05, max_mask_pct))
+        mask_start = random.randint(0, audio_length - mask_length)
+
+        # In-place masking (audio tensors are already copies from augmentation chain)
+        audio[..., mask_start:mask_start + mask_length] = 0
+        return audio
+
+    @staticmethod
+    def polarity_inversion(audio: torch.Tensor) -> torch.Tensor:
+        """Invert audio polarity (flip signal)"""
+        return -audio
+
+    @staticmethod
+    def add_colored_noise(
+        audio: torch.Tensor,
+        snr_db_range: Tuple[float, float] = (20, 40),
+        color: str = "white"
+    ) -> torch.Tensor:
+        """
+        Add colored noise with specified SNR (optimized - white noise only for performance).
+
+        Args:
+            audio: Input audio tensor
+            snr_db_range: Range of SNR in dB (higher = less noise)
+            color: 'white', 'pink', or 'brown' (only white is fast, others fall back to white)
+        """
+        # Generate white noise (pink/brown are too slow for training)
+        noise = torch.randn_like(audio)
+
+        # Calculate signal power
+        signal_power = torch.mean(audio ** 2)
+
+        # Calculate target noise power based on desired SNR
+        snr_db = random.uniform(*snr_db_range)
+        snr_linear = 10 ** (snr_db / 10)
+        noise_power = signal_power / snr_linear
+
+        # Scale noise to target power
+        current_noise_power = torch.mean(noise ** 2)
+        noise_scaled = noise * torch.sqrt(noise_power / (current_noise_power + 1e-10))
+
+        return audio + noise_scaled
 
 
 class AudioDataset(Dataset):
@@ -239,29 +306,37 @@ class AudioDataset(Dataset):
 
     def _apply_augmentation(self, waveform: torch.Tensor) -> torch.Tensor:
         """
-        Apply data augmentation.
+        Apply optimized data augmentation (performance-focused).
 
-        Uses fast variants:
-        - time_stretch: Fast linear interpolation (not resampling-based)
-        - Gaussian noise: No resampling needed
-        - Pitch shift: Disabled (too slow with resampling)
+        Includes: gain variation, time stretch, noise addition, time masking.
+        Removed pitch shifting (too slow with double resampling).
 
-        This keeps augmentation fast while still providing variation.
+        Each augmentation is applied with a certain probability to create
+        diverse training samples without excessive overhead.
         """
-        # Time stretching (fast linear interpolation variant)
-        if random.random() < 0.3:
+        # Gain variation (very fast, always beneficial)
+        if random.random() < 0.5:
+            waveform = AudioAugmentation.gain_variation(
+                waveform, db_range=(-12, 12)
+            )
+
+        # Time stretching (fast linear interpolation)
+        if random.random() < 0.25:
             waveform = AudioAugmentation.time_stretch(
                 waveform, rate_range=(0.9, 1.1)
             )
 
-        # Pitch shifting - DISABLED for performance
-        # The resampling-based pitch shift is too slow (4 resample ops per sample)
-        # Can be re-enabled if needed: AudioAugmentation.pitch_shift()
+        # Add white noise (fast, SNR-based)
+        if random.random() < 0.2:
+            waveform = AudioAugmentation.add_colored_noise(
+                waveform, snr_db_range=(25, 40), color='white'
+            )
 
-        # Add Gaussian noise (fast, no resampling)
-        if random.random() < 0.3:
-            noise_factor = random.uniform(0.001, 0.01)
-            waveform = AudioAugmentation.add_noise(waveform, noise_factor)
+        # Time masking (fast in-place operation)
+        if random.random() < 0.15:
+            waveform = AudioAugmentation.time_mask(
+                waveform, max_mask_pct=0.1
+            )
 
         # Ensure correct length after augmentation
         if waveform.shape[1] != self.audio_length:
@@ -291,39 +366,23 @@ class AudioDataset(Dataset):
         if self.augment:
             audio = self._apply_augmentation(audio)
 
-        # Apply mixup (following EnvNet-v2 approach)
+        # Apply mixup (simplified for performance - standard mixup approach)
         if self.mixup:
             # Pick another random sample
             idx2 = random.randint(0, len(self) - 1)
             audio2 = self._load_audio(self.audio_files[idx2])
             label2 = self.labels[idx2]
 
-            if self.augment:
+            # Only apply augmentation to second sample 50% of the time to reduce overhead
+            if self.augment and random.random() < 0.5:
                 audio2 = self._apply_augmentation(audio2)
 
-            # Pad both with T/2 zeros on each side
-            T = self.audio_length
-            audio = torch.nn.functional.pad(audio, (T // 2, T // 2))
-            audio2 = torch.nn.functional.pad(audio2, (T // 2, T // 2))
+            # Simple mixup with random lambda (faster than complex EnvNet-v2 approach)
+            # Beta distribution with alpha=0.2 (concentrated near 0 and 1)
+            lam = random.betavariate(0.2, 0.2)
 
-            # Randomly crop T-length sections
-            start1 = random.randint(0, audio.shape[1] - T)
-            start2 = random.randint(0, audio2.shape[1] - T)
-            audio = audio[:, start1:start1 + T]
-            audio2 = audio2[:, start2:start2 + T]
-
-            # Calculate mixing ratio according to EnvNet-v2 paper
-            g1 = torch.max(torch.abs(audio))
-            g2 = torch.max(torch.abs(audio2))
-            # Avoid r=0 or r=1 to prevent division by zero or degenerate cases
-            r = random.uniform(0.01, 0.99)
-
-            # p = 1 / (1 + 10^((g1-g2)/20 * (1-r)/r))
-            # No epsilon needed since r is bounded away from 0
-            p = 1.0 / (1.0 + 10 ** ((g1 - g2) / 20 * (1 - r) / r))
-
-            # Mix audio
-            audio_mix = (p * audio + (1 - p) * audio2) / torch.sqrt(p**2 + (1 - p)**2)
+            # Mix audio (simple weighted sum)
+            audio_mix = lam * audio + (1 - lam) * audio2
 
             # Create soft labels
             num_classes = len(self.class_names)
@@ -331,10 +390,10 @@ class AudioDataset(Dataset):
 
             # Handle edge case: both samples from same class
             if label == label2:
-                label_mix[label] = 1.0  # p + (1-p) = 1.0
+                label_mix[label] = 1.0
             else:
-                label_mix[label] = p
-                label_mix[label2] = 1 - p
+                label_mix[label] = lam
+                label_mix[label2] = 1 - lam
 
             return audio_mix, label_mix
 
@@ -553,6 +612,7 @@ def create_dataloaders(
     target_sr: int = 20000,
     augment: bool = True,
     mixup: bool = True,
+    augmentation_multiplier: int = 4,
     **kwargs
 ) -> Tuple[DataLoader, DataLoader]:
     """
@@ -568,6 +628,8 @@ def create_dataloaders(
         target_sr: Target sample rate
         augment: Whether to apply augmentation
         mixup: Whether to apply mixup
+        augmentation_multiplier: Number of times to sample each training example per epoch
+                                 (default: 4 for 4x data expansion). Set to 1 to disable.
 
     Returns:
         (train_loader, test_loader) tuple
@@ -611,10 +673,26 @@ def create_dataloaders(
     )
 
     # Create dataloaders with optimizations for GPU utilization
+    # Use WeightedRandomSampler for data expansion (allows same sample multiple times with different augmentations)
+    if augmentation_multiplier > 1:
+        # Create uniform weights (all samples equally likely)
+        num_samples_per_epoch = len(train_dataset) * augmentation_multiplier
+        weights = [1.0] * len(train_dataset)
+        sampler = WeightedRandomSampler(
+            weights=weights,
+            num_samples=num_samples_per_epoch,
+            replacement=True  # Allow sampling same index multiple times
+        )
+        shuffle = False  # Can't use shuffle with sampler
+    else:
+        sampler = None
+        shuffle = True
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=shuffle,
+        sampler=sampler,
         num_workers=num_workers,
         pin_memory=True,
         drop_last=True,

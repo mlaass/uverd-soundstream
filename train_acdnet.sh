@@ -30,6 +30,12 @@
 #
 #   # Save checkpoints every 500 epochs
 #   ./train_acdnet.sh -- --save-interval 500
+#
+#   # Augmentation control
+#   ./train_acdnet.sh -- --augmentation-multiplier 1    # Disable data expansion (1x)
+#   ./train_acdnet.sh -- --augmentation-multiplier 8    # 8x data expansion
+#   ./train_acdnet.sh -- --no-augment --no-mixup        # Disable all augmentations
+#   ./train_acdnet.sh -- --no-mixup                     # Keep augmentations, disable mixup
 
 set -e
 

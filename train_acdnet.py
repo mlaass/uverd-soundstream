@@ -430,6 +430,8 @@ def main():
     # Augmentation
     parser.add_argument("--no-augment", action="store_true", help="Disable data augmentation")
     parser.add_argument("--no-mixup", action="store_true", help="Disable mixup augmentation")
+    parser.add_argument("--augmentation-multiplier", type=int, default=4,
+                       help="Data expansion factor: sample each training example N times per epoch with different augmentations (default: 4 for 4x expansion, 1 to disable)")
 
     # Audio
     parser.add_argument(
@@ -464,11 +466,16 @@ def main():
         target_sr=args.sample_rate,
         augment=not args.no_augment,
         mixup=not args.no_mixup,
+        augmentation_multiplier=args.augmentation_multiplier,
     )
 
     # Determine number of classes
     num_classes = len(train_loader.dataset.class_names)
     print(f"Number of classes: {num_classes}")
+    print(f"Train dataset size: {len(train_loader.dataset)} samples")
+    if args.augmentation_multiplier > 1:
+        print(f"Augmentation multiplier: {args.augmentation_multiplier}x (effective samples per epoch: {len(train_loader.dataset) * args.augmentation_multiplier})")
+    print(f"Batches per epoch: {len(train_loader)}")
 
     # Create model
     if args.model == "acdnet":
